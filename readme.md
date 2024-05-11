@@ -31,6 +31,16 @@ Finally, head over to Streamer.bot and, in your Action of choice, create a "UDP 
   "Amount": "42"
 }`
 
+The `Event` variable must exactly match the string you registered your function with in `InitialiseStreamerBotEvents()`.
+
+The code is designed to ignore missing information, so you do not need to pass every one of the variables shown in the Json example above. For example, if the event is just a trigger and does not need any additional information, you might put the following in the UDP payload:
+
+`{
+  "Event": "Test"
+}`
+
+You can also modify the code to take in additional variables from the payload if you wish.
+
 ### Other Information
 
 The UDP listening code runs on a separate thread that is currently aborted using Abort(), which is a deprecated command. At the time of upload, the script works fine in the engines I have tested it in (see above), however this may need changing in the future.
