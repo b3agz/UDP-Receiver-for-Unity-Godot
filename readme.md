@@ -2,6 +2,8 @@
 
 These scripts allow for the triggering of events in [Unity](https://unity.com/) or [Godot .NET](https://godotengine.org/) from [Streamer.Bot](https://streamer.bot/). Information is passed over UDP using Streamer.bot's "UDP Broadcast" sub-action and listened for by these scripts in Unity or Godot.
 
+[![AITrackReceiver Demo](https://img.youtube.com/vi/ytrfw7cEOXc/0.jpg)](https://www.youtube.com/watch?v=ytrfw7cEOXc)
+
 ### Requirements
 
 The code was designed to work with Streamer.bot, however it is receiving Json-formatted information over UDP, so will theoretically work with any application that can send custom information over UDP.
