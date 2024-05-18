@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using StreamerBotUDP;
 
 public class StreamerBotEventManager : StreamerBotUDPReceiver {
 
@@ -9,7 +10,7 @@ public class StreamerBotEventManager : StreamerBotUDPReceiver {
     /// The name of the event must exactly match the "Event" variable in the UDP Payload.
     /// </summary>
     protected override void InitialiseStreamerBotEvents() {
-        this.RegisterEvent("Test", StreamerBotTest);
+        RegisterEvent("Test", StreamerBotTest);
     }
 
     #region Functions called by the registered events.
@@ -22,4 +23,4 @@ public class StreamerBotEventManager : StreamerBotUDPReceiver {
     }
 
     #endregion
-}
+} 

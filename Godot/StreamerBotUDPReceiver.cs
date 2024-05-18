@@ -1,4 +1,3 @@
-using Godot;
 using System;
 using System.Collections.Generic;
 using System.Net;
@@ -6,186 +5,237 @@ using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Text.Json;
+using System.Collections.Concurrent;
+using System.Text.Json.Serialization;
+using Godot;
 #nullable enable
 
-public partial class StreamerBotUDPReceiver : Node {
+namespace StreamerBotUDP {
 
-    // The port that StreamerBot is sending the event over. This is set in the Action dialogue box for each action.
-    [Export] private int _port = 5069;
+    public partial class StreamerBotUDPReceiver : Node {
 
-    #region Threading Stuff
-    private Thread? _receiveThread;
-    private UdpClient? _client;
-    #endregion
+        // The port that StreamerBot is sending the event over. This is set in the Action dialogue box for each action.
+        [Export] private int _port = 5069;
 
-    #region Delegate Stuff
-    public delegate void StreamerBotEvent(StreamerBotEventData eventData);
-    private Dictionary<string, StreamerBotEvent> _eventHandlers;
+        #region Threading Stuff
+        private Thread? _receiveThread;
+        private UdpClient? _client;
+        private CancellationTokenSource? _cancellationTokenSource;
+        private static readonly ConcurrentQueue<StreamerBotEventData>? _events = new();
+        #endregion
 
-    protected virtual void InitialiseStreamerBotEvents() {
+        #region Delegate Stuff
+        public delegate void StreamerBotEvent(StreamerBotEventData eventData);
+        private Dictionary<string, StreamerBotEvent> _eventHandlers = new();
 
-        // Register StreamerBotEvents here. Recommend overriding this function from an
-        // inherited script for the sake of neatness and sanity.
+        /// <summary>
+        /// Registers a new StreamerBotEvent.
+        /// </summary>
+        /// <param name="eventType">The name of the event. Must exactly match the Event value passed in from StreamerBot.</param>
+        /// <param name="action">The function to be called when this event is received.</param>
+        protected void RegisterEvent(string eventType, StreamerBotEvent action) {
 
-    }
+            // If we haven't already registered this event type, set it to this action.
+            if (!_eventHandlers.ContainsKey(eventType)) {
+                _eventHandlers[eventType] = action;
+            // If we have registered it, add the action to the event type.
+            } else {
+                _eventHandlers[eventType] += action;
+            }
 
-    /// <summary>
-    /// Registers a new StreamerBotEvent.
-    /// </summary>
-    /// <param name="eventType">The name of the event. Must exactly match the Event value passed in from StreamerBot.</param>
-    /// <param name="action">The function to be called when this event is received.</param>
-    protected void RegisterEvent(string eventType, StreamerBotEvent action) {
-
-        // If we haven't already registered this event type, set it to this action.
-        if (!_eventHandlers.ContainsKey(eventType)) {
-            _eventHandlers[eventType] = action;
-        // If we have registered it, add the action to the event type.
-        } else {
-            _eventHandlers[eventType] += action;
         }
 
-    }
+        /// <summary>
+        /// Checks to see if we have a registered action for the given StreamerBotEventData and runs that action
+        /// if we do.
+        /// </summary>
+        /// <param name="eventData">The StreamerBotEventData received from StreamerBot.</param>
+        private void ProcessEvents(StreamerBotEventData eventData) {
 
-    /// <summary>
-    /// Checks to see if we have a registered action for the given StreamerBotEventData and runs that action
-    /// if we do.
-    /// </summary>
-    /// <param name="eventData">The StreamerBotEventData received from StreamerBot.</param>
-    private void ProcessEvents(StreamerBotEventData eventData) {
+            if (eventData == null || eventData.Event == null) return;
 
-        if (eventData == null || eventData.Event == null) return;
-
-        // If we have a register action for this event, run that function. Else log a warning.
-        if (_eventHandlers.TryGetValue(eventData.Event, out var handler)) {
-            handler?.Invoke(eventData);
-        } else {
-            GD.Print($"StreamerBot sent event type \"{eventData.Event}\" but no matching action is registered for this event");
-        }
-    }
-    #endregion
-
-    /// <summary>
-    /// Initialises the UDP receiver thread and delegate lists.
-    /// </summary>
-    private void Init() {
-
-        GD.Print($"Attempting to initialise StreamerBot UDP Receiver: 127.0.0.1:{_port}");
-
-        // Belts and braces error check to make sure we haven't already tried to start the thread.
-        if (_receiveThread == null) {
-            // Setup the thread and start it running.
-            _receiveThread = new Thread(new ThreadStart(ReceiveData));
-            _receiveThread.IsBackground = true;
-            _receiveThread.Start();
-        } else {
-            GD.Print("Attempted to start StreamerBot UDP Receiver thread but thread was already running.");
-        }
-
-        _eventHandlers = new Dictionary<string, StreamerBotEvent>();
-        InitialiseStreamerBotEvents();
-
-    }
-
-    /// <summary>
-    /// Checks to see if we have a thread or client running and aborts/closes them.
-    /// </summary>
-    private void CloseConnection() {
-        if (_receiveThread != null) {
-            _receiveThread.Abort();
-            _receiveThread = null;
-        }
-        if (_client != null) {
-            _client.Close();
-        }
-    }
-
-    /// <summary>
-    /// Closes the current connection (if there is one) and initialises a new one.
-    /// </summary>
-    public void Reset() {
-        CloseConnection();
-        Init();
-    }
-
-    /// <summary>
-    /// Runs continuously checking for information from UDP port. DO NOT CALL FROM MAIN THREAD!
-    /// </summary>
-    private void ReceiveData() {
-
-        GD.Print($"StreamerBot UDP Receiver thread started for 127.0.0.1:{_port}");
-
-        _client = new UdpClient(_port);
-
-        // Begin UDP Receiver loop.
-        while (true) {
-
-            // Try to receive JSON data and packaged into a StreamerBotEventData class. If successful,
-            // send the resulting data to TryEvent to be used.
-            try {
-                IPEndPoint anyIP = new IPEndPoint(IPAddress.Any, 0);
-                byte[] data = _client.Receive(ref anyIP);
-                string receivedData = Encoding.UTF8.GetString(data);
-
-                // Serialize the JSON data into a StreamerBotEventData class.
-                JsonSerializerOptions options = new JsonSerializerOptions {
-                    PropertyNameCaseInsensitive = true, // Make the parser case-insensitive
-                    DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
-                };
-                StreamerBotEventData? newEvent = JsonSerializer.Deserialize<StreamerBotEventData>(receivedData, options);
-
-                // Send StreamerBotEventData to be processed.
-                ProcessEvents(newEvent);
-
-            } catch (Exception err) {
-                GD.Print(err.ToString());
+            // If we have a registered action for this event, run that function. Else log a warning.
+            if (_eventHandlers.TryGetValue(eventData.Event, out StreamerBotEvent? handler)) {
+                handler?.Invoke(eventData);
+            } else {
+                GD.Print($"StreamerBot sent event type \"{eventData.Event}\" but no matching action is registered for this event");
             }
         }
+        #endregion
+
+        /// <summary>
+        /// Initialises the UDP receiver thread and delegate lists.
+        /// </summary>
+        private void Init() {
+
+            GD.Print($"Attempting to initialise StreamerBot UDP Receiver: 127.0.0.1:{_port}");
+
+            // Belts and braces error check to make sure we haven't already started the thread.
+            if (_receiveThread == null) {
+                // Setup the thread and start it running.
+                _cancellationTokenSource = new();
+                CancellationToken token = _cancellationTokenSource.Token;
+                _receiveThread = new Thread(() => ReceiveData(token));
+                _receiveThread.IsBackground = true;
+                _receiveThread.Start();
+            } else {
+                GD.Print("Attempted to start StreamerBot UDP Receiver thread but thread was already running.");
+            }
+
+            _eventHandlers = new Dictionary<string, StreamerBotEvent>();
+            InitialiseStreamerBotEvents();
+
+        }
+
+        /// <summary>
+        /// Called at the end of Init(), this function is intended to house the registration
+        /// of StreamerBot events and their associated action.
+        /// </summary>
+        protected virtual void InitialiseStreamerBotEvents() {
+
+            // Example:
+            // RegisterEvent("Test", StreamerBotTest);
+
+        }
+
+        /// <summary>
+        /// Checks to see if we have a thread or client running and aborts/closes them.
+        /// </summary>
+        private void CloseConnection() {
+
+            // Make sure the receiver thread is not null.
+            if (_receiveThread != null) {
+                _cancellationTokenSource?.Cancel();
+                _cancellationTokenSource?.Dispose();
+                _cancellationTokenSource = null;
+            }
+
+            // Set receiver thread to null so it can be reinitialised if needed.
+            _receiveThread = null;
+            _client?.Close();
+
+        }
+
+        /// <summary>
+        /// Closes the current connection (if there is one) and initialises a new one.
+        /// </summary>
+        public void Reset() {
+            CloseConnection();
+            Init();
+        }
+
+        /// <summary>
+        /// Runs continuously checking for information from UDP port. DO NOT CALL FROM MAIN THREAD!
+        /// </summary>
+        private void ReceiveData(CancellationToken token) {
+
+            GD.Print($"StreamerBot UDP Receiver thread started for 127.0.0.1:{_port}");
+
+            using (_client = new UdpClient(_port)) {
+                // Begin UDP Receiver loop.
+                while (!token.IsCancellationRequested) {
+
+                    // Try to receive JSON data and packaged into a StreamerBotEventData class. If successful,
+                    // send the resulting data to TryEvent to be used.
+                    try {
+
+                        // Get the JSON information from the UDP message.
+                        IPEndPoint anyIP = new IPEndPoint(IPAddress.Any, 0);
+                        byte[] data = _client.Receive(ref anyIP);
+                        string receivedData = Encoding.UTF8.GetString(data);
+                        
+                        // Serialize the JSON data into a StreamerBotEventData class.
+                        JsonSerializerOptions options = new JsonSerializerOptions {
+                            PropertyNameCaseInsensitive = true, // Make the parser case-insensitive
+                            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+                        };
+                        StreamerBotEventData? newEvent = JsonSerializer.Deserialize<StreamerBotEventData>(receivedData, options);
+
+                        // Add the new event to our events queue to be processed on the main thread.
+                        if (newEvent != null) {
+                            _events?.Enqueue(newEvent);
+                        }
+
+                    } catch (SocketException ex) when (ex.SocketErrorCode == SocketError.Interrupted) {
+                        GD.Print("StreamerBot UDP Receiver thread was interrupted.");
+                    } catch (Exception err) {
+                        GD.Print(err.ToString());
+                    }
+                }
+            }
+            GD.Print("StreamerBot UDP Receiver thread has stopped.");
+        }
+
+        public override void _Process(double delta) {
+
+            // Make sure the events queue is not null.
+            if (_events == null) return;
+
+            // Send any events that have been queued up to be processed.
+            while (_events.TryDequeue(out StreamerBotEventData? newEvent)) {
+                if (newEvent != null) {
+                    ProcessEvents(newEvent);
+                }
+            }
+
+        }
+
+        // These functions run automatically when the parent GameObject is enabled/disabled or the
+        // application quits. Calling Init() and CloseConnection() from here ensures that if your
+        // StreamerBotManager object is disabled/activated, it has the same behaviour as resetting
+        // the UDP connection/receiver thread.
+        #region Automatic Initialisation/Connection Closing
+
+        public override void _Ready() {
+            Init();
+        }
+
+        private void OnDisable() {
+            CloseConnection();
+        }
+
+        private void OnApplicationQuit() {
+            CloseConnection();
+        }
+
+        #endregion
+
     }
 
-    #region Automatic Initialisation/Connection Closing
+    /// <summary>
+    /// Contains the data passed in from StreamerBot. The data can include any or all of the fields
+    /// in this class. For example, sending a Bit Cheer event would include the Event, User, and
+    /// Amount (and possibly Message), whereas sending an ad-break event would only need an
+    /// Event.
+    /// </summary>
+    [System.Serializable]
+    public class StreamerBotEventData {
 
-    public override void _Ready() {
-        Init();
+        /// <summary>
+        /// The type of event. Can be anything you wish but the string passed from StreamerBot
+        /// must match exactly with whatever you are doing in Unity.
+        /// </summary>
+       [JsonPropertyName("Event")] public string Event { get; set; } = string.Empty;
+
+        /// <summary>
+        /// The username associated with the event. For example, if the event was a subscription,
+        /// this would be the username of the subscriber.
+        /// </summary>
+        [JsonPropertyName("User")] public string User { get; set; } = string.Empty;
+
+        /// <summary>
+        /// A message associated with the event. For example, if you wanted to play TTS from this event,
+        /// this string would contain the message.
+        /// </summary>
+        [JsonPropertyName("Message")] public string Message { get; set; } = string.Empty;
+
+        /// <summary>
+        /// A numerical amount associated with this event. For example, the number of bits cheered or subs
+        /// gifted.
+        /// </summary>
+        [JsonPropertyName("Amount")] public int Amount { get; set; } = 0;
+
+
+
     }
-
-    public override void _ExitTree() {
-        CloseConnection();
-    }
-
-    #endregion
-
-}
-
-/// <summary>
-/// Contains the data passed in from StreamerBot. The data can include any or all of the fields
-/// in this class. For example, sending a Bit Cheer event would include the Event, User, and
-/// Amount (and possibly Message), whereas sending an ad-break event would only need an
-/// Event.
-/// </summary>
-public class StreamerBotEventData {
-
-    /// <summary>
-    /// The type of event. Can be anything you wish but the string passed from StreamerBot
-    /// must match exactly with whatever you are doing in Unity.
-    /// </summary>
-    public string? Event { get; set; }
-
-    /// <summary>
-    /// The username associated with the event. For example, if the event was a subscription,
-    /// this would be the username of the subscriber.
-    /// </summary>
-    public string? User { get; set; }
-
-    /// <summary>
-    /// A message associated with the event. For example, if you wanted to play TTS from this event,
-    /// this string would contain the message.
-    /// </summary>
-    public string? Message { get; set; }
-
-    /// <summary>
-    /// A numerical amount associated with this event. For example, the number of bits cheered or subs
-    /// gifted.
-    /// </summary>
-    public int? Amount { get; set; }
-    
 }

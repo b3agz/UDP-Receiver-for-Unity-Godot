@@ -1,5 +1,7 @@
+using System.Collections;
+using System.Collections.Generic;
 using Godot;
-using System;
+using StreamerBotUDP;
 
 public partial class StreamerBotEventManager : StreamerBotUDPReceiver {
 
@@ -21,5 +23,4 @@ public partial class StreamerBotEventManager : StreamerBotUDPReceiver {
     }
 
     #endregion
-
 }
