@@ -12,36 +12,34 @@ No special tools or packages are required, it should work out of the box in both
 
 ### Installing
 
-1. Grab the scripts out of the applicable folder and drop them in your project. Done. You will need `StreamerBotUDPReceiver.cs`. `StreamerBotEventManager.cs` is optional but I recommend using it if you don't want to go diving into the meat of the UDP Receiver code.
+1. Drop the entire repo into your project.
+2. You can delete the folder for the engine you aren't using. Make sure to keep `StreamerBotUDPReceiver.cs`, as it is engine-agnostic C# and contains the core functionality no matter which engine you use.
 
 ### Usage
 
-The following assumes you are using the `StreamerBotEventManager` script or something like it.
+Create a new class inheriting from `UnityStreamerBotEventManager` or `GodotStreamerBotEventManager`. There are two example classes, `UnityStreamerBotEventManagerExample` and `GodotStreamerBotEventManagerExample`. You can use these as guides, or if you prefer, use them as test cases to make sure your connection to Streamer.bot is working before writing your own version.
 
-Attach the `StreamerBotEventManager` script to an active GameObject (Unity) or visible Node (Godot) and set the `Port` value in the inspector to an unused port.
+To create your own version:
+Open up the script and start writing functions for events you want to read from Streamer.bot. The functions can be called anything you like, but they must take in a `StreamerBotEventData` class as a parameter. This will contain the information received from Streamer.bot. In the `InitialiseStreamerBotEvents()` function, register your events with the event name and the function it will call. There is already a "Test" event in the example classes. The `Event` variable must exactly match the string you registered your function with in `InitialiseStreamerBotEvents()`.
 
-Open up the script and start writing functions for events you want to read from Streamer.bot. The functions can be called anything you like, but they must take in a `StreamerBotEventData` class as a parameter. This will contain the information received from Streamer.bot.
+Attach your script to an active GameObject (Unity) or visible Node (Godot) and set the `Port` value in the inspector to an unused port.
 
-In the `InitialiseStreamerBotEvents()` function, register your events with the event name and the function it will call. There is "Test" event already in the code as an example.
-
-Finally, head over to Streamer.bot and, in your Action of choice, create a "UDP Broadcast" Sub-Action. Make sure the port number matches the number you used in your engine. The payload needs to be formatted like this:
+Head over to Streamer.bot and, in your Action of choice, create a "UDP Broadcast" Sub-Action. Make sure the port number matches the number you used in your engine. The payload needs to be formatted like this:
 
 `{
-  "Event": "Test",
-  "User": "b3agz",
-  "Message": "This is a test message.",
-  "Amount": "42"
+"Event": "Test",
+"User": "b3agz",
+"Message": "This is a test message.",
+"Amount": "42"
 }`
-
-The `Event` variable must exactly match the string you registered your function with in `InitialiseStreamerBotEvents()`.
 
 The code is designed to ignore missing information, so you do not need to pass every one of the variables shown in the Json example above. For example, if the event is just a trigger and does not need any additional information, you might put the following in the UDP payload:
 
 `{
-  "Event": "Test"
+"Event": "Test"
 }`
-
 You can also modify the code to take in additional variables from the payload if you wish.
+
 
 ### Other Information
 
